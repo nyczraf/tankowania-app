@@ -1,3 +1,26 @@
+import io  # Dodaj to na samej górze pliku app.py
+
+# ... (reszta Twojego kodu bez zmian aż do sekcji pobierania) ...
+
+if not df.empty:
+    st.dataframe(df.tail(10), use_container_width=True)
+    
+    # TWORZENIE PLIKU EXCEL W PAMIĘCI
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Tankowania')
+        # Automatyczne dopasowanie szerokości kolumn w Excelu
+        worksheet = writer.sheets['Tankowania']
+        for i, col in enumerate(df.columns):
+            column_len = max(df[col].astype(str).str.len().max(), len(col)) + 2
+            worksheet.set_column(i, i, column_len)
+    
+    st.download_button(
+        label="📥 POBIERZ RAPORT EXCEL (.xlsx)",
+        data=buffer.getvalue(),
+        file_name=f"raport_tankowania_{date.today()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 import streamlit as st
 import pandas as pd
 from datetime import date
@@ -104,3 +127,4 @@ with st.expander("🗑️ Zarządzanie plikiem"):
             df.to_csv(DB_FILE, index=False)
             st.warning("Usunięto ostatni wiersz.")
             st.rerun()
+
