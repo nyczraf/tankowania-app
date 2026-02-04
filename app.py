@@ -19,10 +19,13 @@ def load_data():
 
 df = load_data()
 
-# LOGIKA LINKU
+# --- LOGIKA LINKU (Użytkownik i Auto) ---
 query_params = st.query_params
 user_param = query_params.get("user", "")
+car_param = query_params.get("car", "")
+
 default_name = user_param.replace("_", " ")
+default_car = car_param.replace("_", " ").upper()
 
 st.title("⛽ Rejestr Tankowania")
 
@@ -34,57 +37,71 @@ with st.form("fuel_form", clear_on_submit=True):
     with col_k:
         driver_name = st.text_input("Imię i Nazwisko", value=default_name)
     with col_a:
-        # Możesz tu wpisać listę aut na stałe, np. ["Auto 1", "Auto 2"] lub zostawić text_input
-        vehicle = st.text_input("Numer rejestracyjny auta")
+        vehicle = st.text_input("Numer rejestracyjny auta", value=default_car)
 
-    # Obliczamy ostatni przebieg DLA TEGO AUTA (dynamicznie po wpisaniu numeru)
+    # Obliczamy ostatni przebieg DLA TEGO KONKRETNEGO AUTA
     last_mileage_vehicle = 0
     if vehicle and not df.empty:
+        # Filtrujemy bazę po numerze auta (ignorując wielkość liter)
         vehicle_history = df[df["Auto"].str.upper() == vehicle.upper()]
         if not vehicle_history.empty:
-            last_mileage_vehicle = int(vehicle_history["Przebieg"].max())
+            try:
+                last_mileage_vehicle = int(vehicle_history["Przebieg"].max())
+            except:
+                last_mileage_vehicle = 0
 
     col1, col2 = st.columns(2)
     with col1:
-        fuel_date = st.date_input("Data", date.today())
-        liters = st.number_input("Litry", min_value=0.0, step=0.01)
+        fuel_date = st.date_input("Data tankowania", date.today())
+        liters = st.number_input("Ilość litrów", min_value=0.0, step=0.01)
     with col2:
-        payment_method = st.selectbox("Płatność", ["Tankpol", "DKV", "Andamur"])
-        mileage = st.number_input(f"Przebieg (Ostatnio w tym aucie: {last_mileage_vehicle} km)", min_value=0, step=1)
+        payment_method = st.selectbox("Forma płatności", ["Tankpol", "DKV", "Andamur"])
+        mileage = st.number_input(f"Przebieg (Ostatnio w {vehicle}: {last_mileage_vehicle} km)", min_value=0, step=1)
     
     submit = st.form_submit_button("ZAPISZ DANE")
 
+# OBSŁUGA ZAPISU
 if submit:
     if driver_name and vehicle and liters > 0 and mileage > last_mileage_vehicle:
         new_row = pd.DataFrame([{
-            "Kierowca": driver_name, "Auto": vehicle.upper(), "Data": str(fuel_date),
-            "Litry": liters, "Płatność": payment_method, "Przebieg": mileage
+            "Kierowca": driver_name, 
+            "Auto": vehicle.upper(), 
+            "Data": str(fuel_date),
+            "Litry": liters, 
+            "Płatność": payment_method, 
+            "Przebieg": mileage
         }])
+        
         df = pd.concat([df, new_row], ignore_index=True)
         df.to_csv(DB_FILE, index=False)
-        st.success(f"Zapisano tankowanie auta {vehicle.upper()}")
+        
+        st.success(f"Zapisano tankowanie dla auta {vehicle.upper()}")
         st.balloons()
         st.rerun()
     elif vehicle and mileage <= last_mileage_vehicle:
-        st.error(f"BŁĄD: Przebieg dla auta {vehicle.upper()} musi być wyższy niż {last_mileage_vehicle} km!")
+        st.error(f"BŁĄD: Podany przebieg ({mileage}) jest mniejszy lub równy ostatniemu zapisanemu dla auta {vehicle.upper()} ({last_mileage_vehicle} km)!")
     else:
-        st.warning("Uzupełnij wszystkie dane (Imię, Auto, Litry, Przebieg).")
+        st.warning("Uzupełnij wszystkie pola formularza.")
 
-# --- HISTORIA OSOBISTA ---
+# --- HISTORIA OSOBISTA (Filtrowana po kierowcy z linku) ---
 st.divider()
 if default_name:
     st.subheader(f"📋 Twoja historia ({default_name})")
     user_df = df[df["Kierowca"] == default_name]
     st.dataframe(user_df.tail(10), use_container_width=True)
 else:
-    st.subheader("📋 Pełna historia (Widok Admina)")
+    st.subheader("📋 Pełna historia (Widok Administratora)")
     st.dataframe(df.tail(15), use_container_width=True)
 
-# --- EXCEL ---
+# --- EKSPORT EXCEL ---
 if not df.empty:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Tankowania')
+        worksheet = writer.sheets['Tankowania']
+        for i, col in enumerate(df.columns):
+            column_len = max(df[col].astype(str).str.len().max(), len(col)) + 2
+            worksheet.set_column(i, i, column_len)
     
     st.download_button(
         label="📥 POBIERZ RAPORT EXCEL",
@@ -93,14 +110,14 @@ if not df.empty:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# --- HASŁO BOTAM ---
+# --- ADMINISTRACJA Z HASŁEM ---
 st.divider()
-with st.expander("🔐 Administracja"):
-    password = st.text_input("Hasło", type="password")
+with st.expander("🔐 Administracja (Hasło: Botam)"):
+    password = st.text_input("Podaj hasło", type="password")
     if password == "Botam":
         if st.button("USUŃ OSTATNI WPIS"):
             if not df.empty:
                 df = df[:-1]
                 df.to_csv(DB_FILE, index=False)
-                st.success("Usunięto.")
+                st.success("Ostatni wpis został usunięty.")
                 st.rerun()
