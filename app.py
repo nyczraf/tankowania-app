@@ -9,20 +9,27 @@ st.set_page_config(page_title="Rejestr Tankowania", layout="centered", page_icon
 DB_FILE = "baza_tankowania.csv"
 
 def load_data():
+    columns = ["Kierowca", "Auto", "Data", "Litry", "Płatność", "Przebieg"]
     if os.path.exists(DB_FILE):
         try:
-            return pd.read_csv(DB_FILE)
+            temp_df = pd.read_csv(DB_FILE)
+            # Zabezpieczenie: jeśli brakuje kolumny 'Auto' w starym pliku, dodaj ją
+            for col in columns:
+                if col not in temp_df.columns:
+                    temp_df[col] = ""
+            return temp_df[columns] # Ustawienie poprawnej kolejności
         except:
-            return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Przebieg"])
+            return pd.DataFrame(columns=columns)
     else:
-        return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Przebieg"])
+        return pd.DataFrame(columns=columns)
 
 df = load_data()
 
-# --- LOGIKA LINKU (Użytkownik i Auto) ---
-query_params = st.query_params
-user_param = query_params.get("user", "")
-car_param = query_params.get("car", "")
+# --- LOGIKA LINKU ---
+# W nowszych wersjach Streamlit używamy st.query_params bezpośrednio
+q_params = st.query_params
+user_param = q_params.get("user", "")
+car_param = q_params.get("car", "")
 
 default_name = user_param.replace("_", " ")
 default_car = car_param.replace("_", " ").upper()
@@ -42,11 +49,11 @@ with st.form("fuel_form", clear_on_submit=True):
     # Obliczamy ostatni przebieg DLA TEGO KONKRETNEGO AUTA
     last_mileage_vehicle = 0
     if vehicle and not df.empty:
-        # Filtrujemy bazę po numerze auta (ignorując wielkość liter)
-        vehicle_history = df[df["Auto"].str.upper() == vehicle.upper()]
+        # Upewniamy się, że szukamy w kolumnie 'Auto'
+        vehicle_history = df[df["Auto"].astype(str).str.upper() == vehicle.upper()]
         if not vehicle_history.empty:
             try:
-                last_mileage_vehicle = int(vehicle_history["Przebieg"].max())
+                last_mileage_vehicle = int(pd.to_numeric(vehicle_history["Przebieg"]).max())
             except:
                 last_mileage_vehicle = 0
 
@@ -79,11 +86,11 @@ if submit:
         st.balloons()
         st.rerun()
     elif vehicle and mileage <= last_mileage_vehicle:
-        st.error(f"BŁĄD: Podany przebieg ({mileage}) jest mniejszy lub równy ostatniemu zapisanemu dla auta {vehicle.upper()} ({last_mileage_vehicle} km)!")
+        st.error(f"BŁĄD: Przebieg musi być wyższy niż {last_mileage_vehicle} km!")
     else:
-        st.warning("Uzupełnij wszystkie pola formularza.")
+        st.warning("Uzupełnij wszystkie pola.")
 
-# --- HISTORIA OSOBISTA (Filtrowana po kierowcy z linku) ---
+# --- HISTORIA OSOBISTA ---
 st.divider()
 if default_name:
     st.subheader(f"📋 Twoja historia ({default_name})")
@@ -98,10 +105,6 @@ if not df.empty:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Tankowania')
-        worksheet = writer.sheets['Tankowania']
-        for i, col in enumerate(df.columns):
-            column_len = max(df[col].astype(str).str.len().max(), len(col)) + 2
-            worksheet.set_column(i, i, column_len)
     
     st.download_button(
         label="📥 POBIERZ RAPORT EXCEL",
@@ -110,14 +113,17 @@ if not df.empty:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# --- ADMINISTRACJA Z HASŁEM ---
+# --- ADMINISTRACJA ---
 st.divider()
-with st.expander("🔐 Administracja (Hasło: Botam)"):
+with st.expander("🔐 Administracja"):
     password = st.text_input("Podaj hasło", type="password")
     if password == "Botam":
         if st.button("USUŃ OSTATNI WPIS"):
             if not df.empty:
                 df = df[:-1]
                 df.to_csv(DB_FILE, index=False)
-                st.success("Ostatni wpis został usunięty.")
+                st.rerun()
+        if st.button("RESTART BAZY (KASUJE WSZYSTKO)"):
+            if os.path.exists(DB_FILE):
+                os.remove(DB_FILE)
                 st.rerun()
