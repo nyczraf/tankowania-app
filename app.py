@@ -21,10 +21,6 @@ if not df.empty:
         file_name=f"raport_tankowania_{date.today()}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-import streamlit as st
-import pandas as pd
-from datetime import date
-import os
 
 # KONFIGURACJA STRONY
 st.set_page_config(page_title="Rejestr Tankowania", layout="centered", page_icon="⛽")
@@ -127,4 +123,5 @@ with st.expander("🗑️ Zarządzanie plikiem"):
             df.to_csv(DB_FILE, index=False)
             st.warning("Usunięto ostatni wiersz.")
             st.rerun()
+
 
