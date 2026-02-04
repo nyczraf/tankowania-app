@@ -1,55 +1,84 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import date
-import os
 
-st.set_page_config(page_title="Rejestr Tankowania", layout="centered")
+st.set_page_config(page_title="Logistyka Paliwowa", layout="centered", page_icon="⛽")
 
-DB_FILE = "historia_tankowan.csv"
-PASSWORD_CLEAR = "Botam"
+# --- KONFIGURACJA ---
+URL = "TUTAJ_WKLEJ_TWÓJ_LINK_DO_ARKUSZA_GOOGLE"
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["Kierowca", "Data", "Litry", "Płatność", "Przebieg"])
+    try:
+        return conn.read(spreadsheet=URL)
+    except:
+        return pd.DataFrame(columns=["Kierowca", "Data", "Litry", "Płatność", "Przebieg"])
 
+# Pobieramy dane na starcie
 df = load_data()
+
+# --- LOGIKA LINKU (?user=Imię_Nazwisko) ---
+query_params = st.query_params
+default_name = query_params.get("user", "").replace("_", " ")
 
 st.title("⛽ Rejestr Tankowania")
 
-# Zapamiętywanie kierowcy w sesji
-if "driver" not in st.session_state:
-    st.session_state.driver = ""
-
-with st.form("fuel_form", clear_on_submit=False):
-    driver_name = st.text_input("Imię i Nazwisko", value=st.session_state.driver)
-    fuel_date = st.date_input("Data tankowania", date.today())
-    liters = st.number_input("Ilość litrów", min_value=0.0, step=0.01)
-    payment_method = st.selectbox("Forma płatności", ["Tankpol", "DKV", "Andamur"])
-    mileage = st.number_input("Przebieg (km)", min_value=0, step=1)
-    
-    if st.form_submit_button("ZAPISZ DANE"):
-        if driver_name and liters > 0:
-            new_entry = pd.DataFrame([[driver_name, fuel_date, liters, payment_method, mileage]], 
-                                    columns=df.columns)
-            df = pd.concat([df, new_entry], ignore_index=True)
-            df.to_csv(DB_FILE, index=False)
-            st.session_state.driver = driver_name
-            st.success("Zapisano!")
-            st.rerun()
-
-st.divider()
-st.subheader("📋 Historia")
-st.dataframe(df.tail(5), use_container_width=True)
-
+# Wyciągamy ostatni przebieg dla podpowiedzi
+last_mileage = 0
 if not df.empty:
-    df.to_excel("raport.xlsx", index=False)
-    with open("raport.xlsx", "rb") as f:
-        st.download_button("📥 Pobierz Excel", f, "tankowania.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # Pobieramy ostatni przebieg z bazy
+    last_mileage = df.iloc[-1]["Przebieg"]
 
-with st.expander("🗑️ Usuwanie"):
+with st.form("fuel_form", clear_on_submit=True):
+    st.subheader("Nowy wpis")
+    
+    driver_name = st.text_input("Kierowca", value=default_name)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        fuel_date = st.date_input("Data", date.today())
+        liters = st.number_input("Ilość litrów", min_value=0.0, step=0.01)
+    with col2:
+        payment_method = st.selectbox("Forma płatności", ["Tankpol", "DKV", "Andamur"])
+        # Podpowiadamy ostatni przebieg pod polem
+        mileage = st.number_input(f"Przebieg (Ostatnio: {last_mileage} km)", min_value=0, step=1)
+    
+    submit = st.form_submit_button("ZAPISZ DANE")
+
+if submit:
+    if driver_name and liters > 0 and mileage > last_mileage:
+        new_entry = pd.DataFrame([{
+            "Kierowca": driver_name,
+            "Data": str(fuel_date),
+            "Litry": liters,
+            "Płatność": payment_method,
+            "Przebieg": mileage
+        }])
+        
+        updated_df = pd.concat([df, new_entry], ignore_index=True)
+        conn.update(spreadsheet=URL, data=updated_df)
+        
+        st.success("Zapisano pomyślnie!")
+        st.balloons()
+        st.rerun()
+    elif mileage <= last_mileage and mileage != 0:
+        st.warning(f"Uwaga: Wpisany przebieg ({mileage}) jest mniejszy lub równy poprzedniemu ({last_mileage})!")
+    else:
+        st.error("Uzupełnij poprawnie wszystkie pola.")
+
+# --- HISTORIA I ADMINISTRACJA ---
+st.divider()
+st.subheader("📋 Historia ostatnich tankowań")
+st.dataframe(df.tail(10), use_container_width=True)
+
+with st.expander("🔐 Administracja (Kasowanie)"):
     pwd = st.text_input("Hasło", type="password")
-    if st.button("KASUJ WSZYSTKO"):
-        if pwd == PASSWORD_CLEAR:
-            if os.path.exists(DB_FILE): os.remove(DB_FILE)
+    if st.button("WYCZYŚĆ WSZYSTKO"):
+        if pwd == "Botam":
+            empty_df = pd.DataFrame(columns=["Kierowca", "Data", "Litry", "Płatność", "Przebieg"])
+            conn.update(spreadsheet=URL, data=empty_df)
+            st.success("Historia została wykasowana.")
             st.rerun()
+        else:
+            st.error("Błędne hasło!")
