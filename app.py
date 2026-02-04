@@ -26,9 +26,14 @@ st.title("⛽ Rejestr Tankowania")
 
 # Wyciągamy ostatni przebieg dla podpowiedzi
 last_mileage = 0
-if not df.empty:
-    # Pobieramy ostatni przebieg z bazy
-    last_mileage = df.iloc[-1]["Przebieg"]
+try:
+    if not df.empty and "Przebieg" in df.columns:
+        # Pobieramy ostatnią wartość z kolumny Przebieg
+        last_val = df["Przebieg"].iloc[-1]
+        # Sprawdzamy czy to na pewno liczba
+        last_mileage = int(last_val) if pd.notnull(last_val) else 0
+except Exception:
+    last_mileage = 0
 
 with st.form("fuel_form", clear_on_submit=True):
     st.subheader("Nowy wpis")
@@ -82,6 +87,7 @@ with st.expander("🔐 Administracja (Kasowanie)"):
             st.rerun()
         else:
             st.error("Błędne hasło!")
+
 
 
 
