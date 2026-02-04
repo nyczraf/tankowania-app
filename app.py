@@ -6,7 +6,7 @@ from datetime import date
 st.set_page_config(page_title="Logistyka Paliwowa", layout="centered", page_icon="⛽")
 
 # --- KONFIGURACJA ---
-URL = "TUTAJ_WKLEJ_TWÓJ_LINK_DO_ARKUSZA_GOOGLE"
+URL = "https://docs.google.com/spreadsheets/d/1pEuOX5WoOhv-JMwzvmHPcMbMttEaK5Vsc8-mgja569o/edit?gid=845295439#gid=845295439"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
@@ -82,3 +82,4 @@ with st.expander("🔐 Administracja (Kasowanie)"):
             st.rerun()
         else:
             st.error("Błędne hasło!")
+
