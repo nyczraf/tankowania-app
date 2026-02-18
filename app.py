@@ -5,17 +5,26 @@ from datetime import date
 
 st.set_page_config(page_title="Logistyka Trasy", layout="centered", page_icon="🚚")
 
-# Łączymy się bez podawania URL w kodzie - aplikacja sama weźmie go z Secrets
+# Pobieramy link bezpośrednio z sekcji Secrets
+# To zapobiegnie błędowi "Spreadsheet must be specified"
+try:
+    spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+except Exception:
+    st.error("Błąd: Nie znaleziono linku do arkusza w sekcji Secrets!")
+    spreadsheet_url = None
+
+# Inicjalizacja połączenia
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    try:
-        # Nie podajemy tutaj spreadsheet=URL! 
-        # Biblioteka sama odczyta 'spreadsheet' z sekcji [connections.gsheets] w Secrets
-        return conn.read(ttl=0) 
-    except Exception as e:
-        st.error(f"Błąd podczas ładowania: {e}")
-        return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Start Trasy", "Koniec Trasy"])
+    if spreadsheet_url:
+        try:
+            # Podajemy URL jawnie, ale autoryzacja i tak pójdzie przez Service Account z Secrets
+            return conn.read(spreadsheet=spreadsheet_url, ttl="0")
+        except Exception as e:
+            st.error(f"Błąd podczas ładowania danych: {e}")
+            return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Start Trasy", "Koniec Trasy"])
+    return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Start Trasy", "Koniec Trasy"])
 
 df = load_data()
 
@@ -89,4 +98,5 @@ with st.expander("🔐 Administracja (Hasło: Botam)"):
             df = df[:-1]
             conn.update(data=df)
             st.rerun()
+
 
