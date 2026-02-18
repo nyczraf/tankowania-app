@@ -1,129 +1,89 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import date
-import os
-import io
 
-st.set_page_config(page_title="Rejestr Tankowania", layout="centered", page_icon="⛽")
+st.set_page_config(page_title="Logistyka Trasy", layout="centered", page_icon="🚚")
 
-DB_FILE = "baza_tankowania.csv"
+# --- KONFIGURACJA POŁĄCZENIA ---
+# Upewnij się, że w Secrets masz zdefiniowane połączenie gsheets
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    columns = ["Kierowca", "Auto", "Data", "Litry", "Płatność", "Przebieg"]
-    if os.path.exists(DB_FILE):
-        try:
-            temp_df = pd.read_csv(DB_FILE)
-            # Zabezpieczenie: jeśli brakuje kolumny 'Auto' w starym pliku, dodaj ją
-            for col in columns:
-                if col not in temp_df.columns:
-                    temp_df[col] = ""
-            return temp_df[columns] # Ustawienie poprawnej kolejności
-        except:
-            return pd.DataFrame(columns=columns)
-    else:
-        return pd.DataFrame(columns=columns)
+    try:
+        return conn.read(ttl="0") # ttl=0 wymusza odświeżenie danych za każdym razem
+    except:
+        return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Start Trasy", "Koniec Trasy"])
 
 df = load_data()
 
-# --- LOGIKA LINKU ---
-# W nowszych wersjach Streamlit używamy st.query_params bezpośrednio
-q_params = st.query_params
-user_param = q_params.get("user", "")
-car_param = q_params.get("car", "")
+# --- LOGIKA LINKÓW ---
+q = st.query_params
+default_name = q.get("user", "").replace("_", " ")
+default_car = q.get("car", "").upper()
 
-default_name = user_param.replace("_", " ")
-default_car = car_param.replace("_", " ").upper()
+st.title("🚚 Rejestr Trasy i Tankowania")
 
-st.title("⛽ Rejestr Tankowania")
-
-# FORMULARZ
-with st.form("fuel_form", clear_on_submit=True):
-    st.subheader("Nowy wpis")
+with st.form("main_form", clear_on_submit=True):
+    st.subheader("Wprowadź dane z trasy")
     
-    col_k, col_a = st.columns(2)
-    with col_k:
-        driver_name = st.text_input("Imię i Nazwisko", value=default_name)
+    c1, c2 = st.columns(2)
+    with c1:
+        driver = st.text_input("Kierowca", value=default_name)
+        vehicle = st.text_input("Numer rejestracyjny", value=default_car)
+    with c2:
+        log_date = st.date_input("Data", date.today())
+        payment = st.selectbox("Forma płatności", ["Tankpol", "DKV", "Andamur", "Inna"])
+
+    st.divider()
+    
+    col_a, col_b, col_c = st.columns(3)
     with col_a:
-        vehicle = st.text_input("Numer rejestracyjny auta", value=default_car)
+        start_mileage = st.number_input("Start trasy (km)", min_value=0, step=1)
+    with col_b:
+        end_mileage = st.number_input("Koniec trasy (km)", min_value=0, step=1)
+    with col_c:
+        liters = st.number_input("Zatankowano (litry)", min_value=0.0, step=0.01)
 
-    # Obliczamy ostatni przebieg DLA TEGO KONKRETNEGO AUTA
-    last_mileage_vehicle = 0
-    if vehicle and not df.empty:
-        # Upewniamy się, że szukamy w kolumnie 'Auto'
-        vehicle_history = df[df["Auto"].astype(str).str.upper() == vehicle.upper()]
-        if not vehicle_history.empty:
-            try:
-                last_mileage_vehicle = int(pd.to_numeric(vehicle_history["Przebieg"]).max())
-            except:
-                last_mileage_vehicle = 0
+    submit = st.form_submit_button("ZAPISZ DANE W ARKUSZU")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        fuel_date = st.date_input("Data tankowania", date.today())
-        liters = st.number_input("Ilość litrów", min_value=0.0, step=0.01)
-    with col2:
-        payment_method = st.selectbox("Forma płatności", ["Tankpol", "DKV", "Andamur"])
-        mileage = st.number_input(f"Przebieg (Ostatnio w {vehicle}: {last_mileage_vehicle} km)", min_value=0, step=1)
-    
-    submit = st.form_submit_button("ZAPISZ DANE")
-
-# OBSŁUGA ZAPISU
 if submit:
-    if driver_name and vehicle and liters > 0 and mileage > last_mileage_vehicle:
-        new_row = pd.DataFrame([{
-            "Kierowca": driver_name, 
-            "Auto": vehicle.upper(), 
-            "Data": str(fuel_date),
-            "Litry": liters, 
-            "Płatność": payment_method, 
-            "Przebieg": mileage
-        }])
-        
-        df = pd.concat([df, new_row], ignore_index=True)
-        df.to_csv(DB_FILE, index=False)
-        
-        st.success(f"Zapisano tankowanie dla auta {vehicle.upper()}")
-        st.balloons()
-        st.rerun()
-    elif vehicle and mileage <= last_mileage_vehicle:
-        st.error(f"BŁĄD: Przebieg musi być wyższy niż {last_mileage_vehicle} km!")
+    if driver and vehicle and end_mileage >= start_mileage:
+        try:
+            new_data = pd.DataFrame([{
+                "Kierowca": driver,
+                "Auto": vehicle.upper(),
+                "Data": str(log_date),
+                "Litry": liters,
+                "Płatność": payment,
+                "Start Trasy": start_mileage,
+                "Koniec Trasy": end_mileage
+            }])
+            
+            # Pobieramy świeże dane, łączymy i wysyłamy
+            updated_df = pd.concat([df, new_data], ignore_index=True)
+            conn.update(data=updated_df)
+            
+            st.success("Dane zapisane trwale w Arkuszach Google!")
+            st.balloons()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Błąd połączenia z bazą: {e}")
+            st.info("Upewnij się, że skonfigurowałeś 'Secrets' w panelu Streamlit.")
     else:
-        st.warning("Uzupełnij wszystkie pola.")
+        st.error("Błąd: Przebieg końcowy musi być większy lub równy początkowemu!")
 
-# --- HISTORIA OSOBISTA ---
+# --- WIDOK DLA KIEROWCY ---
 st.divider()
 if default_name:
-    st.subheader(f"📋 Twoja historia ({default_name})")
-    user_df = df[df["Kierowca"] == default_name]
-    st.dataframe(user_df.tail(10), use_container_width=True)
-else:
-    st.subheader("📋 Pełna historia (Widok Administratora)")
-    st.dataframe(df.tail(15), use_container_width=True)
-
-# --- EKSPORT EXCEL ---
-if not df.empty:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Tankowania')
-    
-    st.download_button(
-        label="📥 POBIERZ RAPORT EXCEL",
-        data=output.getvalue(),
-        file_name=f"raport_paliwowy_{date.today()}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    st.subheader(f"Twoje ostatnie wpisy")
+    st.dataframe(df[df["Kierowca"] == default_name].tail(5), use_container_width=True)
 
 # --- ADMINISTRACJA ---
-st.divider()
-with st.expander("🔐 Administracja"):
-    password = st.text_input("Podaj hasło", type="password")
-    if password == "Botam":
+with st.expander("🔐 Administracja (Hasło: Botam)"):
+    pass_input = st.text_input("Hasło", type="password")
+    if pass_input == "Botam":
         if st.button("USUŃ OSTATNI WPIS"):
-            if not df.empty:
-                df = df[:-1]
-                df.to_csv(DB_FILE, index=False)
-                st.rerun()
-        if st.button("RESTART BAZY (KASUJE WSZYSTKO)"):
-            if os.path.exists(DB_FILE):
-                os.remove(DB_FILE)
-                st.rerun()
+            df = df[:-1]
+            conn.update(data=df)
+            st.rerun()
