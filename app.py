@@ -5,14 +5,16 @@ from datetime import date
 
 st.set_page_config(page_title="Logistyka Trasy", layout="centered", page_icon="🚚")
 
-# --- KONFIGURACJA POŁĄCZENIA ---
-# Upewnij się, że w Secrets masz zdefiniowane połączenie gsheets
+# Łączymy się bez podawania URL w kodzie - aplikacja sama weźmie go z Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
     try:
-        return conn.read(ttl="0") # ttl=0 wymusza odświeżenie danych za każdym razem
-    except:
+        # Nie podajemy tutaj spreadsheet=URL! 
+        # Biblioteka sama odczyta 'spreadsheet' z sekcji [connections.gsheets] w Secrets
+        return conn.read(ttl=0) 
+    except Exception as e:
+        st.error(f"Błąd podczas ładowania: {e}")
         return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Start Trasy", "Koniec Trasy"])
 
 df = load_data()
@@ -87,3 +89,4 @@ with st.expander("🔐 Administracja (Hasło: Botam)"):
             df = df[:-1]
             conn.update(data=df)
             st.rerun()
+
