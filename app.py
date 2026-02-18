@@ -13,19 +13,16 @@ except Exception:
     st.error("Błąd: Nie znaleziono linku do arkusza w sekcji Secrets!")
     spreadsheet_url = None
 
-# Inicjalizacja połączenia
+# Najprostsza forma - Streamlit sam połączy [connections.gsheets] z tą funkcją
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    if spreadsheet_url:
-        try:
-            # Podajemy URL jawnie, ale autoryzacja i tak pójdzie przez Service Account z Secrets
-            return conn.read(spreadsheet=spreadsheet_url, ttl="0")
-        except Exception as e:
-            st.error(f"Błąd podczas ładowania danych: {e}")
-            return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Start Trasy", "Koniec Trasy"])
-    return pd.DataFrame(columns=["Kierowca", "Auto", "Data", "Litry", "Płatność", "Start Trasy", "Koniec Trasy"])
-
+    try:
+        # Odczyt bez parametrów - weźmie link z Secrets
+        return conn.read(ttl=0) 
+    except Exception as e:
+        st.error(f"Błąd ładowania: {e}")
+        return pd.DataFrame()
 df = load_data()
 
 # --- LOGIKA LINKÓW ---
@@ -98,5 +95,6 @@ with st.expander("🔐 Administracja (Hasło: Botam)"):
             df = df[:-1]
             conn.update(data=df)
             st.rerun()
+
 
 
